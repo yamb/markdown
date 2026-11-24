@@ -93,7 +93,52 @@ test('every HTML field has a five million UTF-16 ceiling before cleanup', async 
     .transform({ ...html, text: { html: exact, introduction: null } }, ctx);
 
   assert.equal(result.text.html.length, 5000000);
+
+  const marked = await md
+    .html()
+    .transform(await md.transform(source({ text: 'Intro\n\n---\n\nBody' }), ctx), ctx);
+  const text = { ...marked.text, html: `${'&'.repeat(1000001)}${marked.text.html}` };
+  await assert.rejects(md.clean().transform({ ...marked, text }, ctx), {
+    code: 'YAMB_CONTENT_LIMIT',
+    field: 'text.html'
+  });
 });
+
+test(
+  'srcset scanning stays linear on separator and whitespace runs',
+  { timeout: 10000 },
+  async () => {
+    await using md = markdown();
+    const html = await md.html().transform(await md.transform(source(), ctx), ctx);
+
+    const commas = ','.repeat(1000000);
+
+    for (const [srcset, expected] of [
+      [commas, '<img>'],
+      [`a${commas}b`, `<img srcset="https://example.test/blog/a${commas}b">`],
+      [`a ${' '.repeat(1000000)}x`, '<img>'],
+      [`a ${'1'.repeat(1000000)}q`, '<img>']
+    ]) {
+      const text = { html: `<img srcset="${srcset}">`, introduction: null };
+      const result = await md.clean().transform({ ...html, text }, ctx);
+      assert.equal(result.text.html, expected);
+    }
+
+    for (const markup of [
+      `<img srcset="${'a ,'.repeat(1600000)}">`,
+      `<img srcset="${'a ,'.repeat(100000)}">`.repeat(4)
+    ]) {
+      const text = { html: markup, introduction: null };
+      await assert.rejects(md.clean().transform({ ...html, text }, ctx), {
+        code: 'YAMB_CONTENT_LIMIT',
+        field: 'text.html',
+        message: 'text.html srcset exceeds budget'
+      });
+    }
+
+    assert.equal((await md.clean().transform(html, ctx)).text.plain, 'Body');
+  }
+);
 
 test('serialization and sanitized output expansion are bounded too', async () => {
   await using md = markdown();

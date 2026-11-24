@@ -1,6 +1,6 @@
 {
-  "name": "@meritt/yamb-markdown",
-  "version": "0.1.0",
+  "name": "yamb-markdown",
+  "version": "0.1.1",
   "description": "Editable Markdown tokens and sanitized HTML and text projections for Yamb",
   "keywords": [
     "html",
@@ -49,7 +49,8 @@
     "markdown-it": "^15.0.3",
     "markdown-it-ins": "^4.0.0",
     "markdown-it-mark": "^4.0.0",
-    "markdown-it-task-lists": "^2.1.1"
+    "markdown-it-task-lists": "^2.1.1",
+    "property-information": "^7.2.0"
   },
   "devDependencies": {
     "oxfmt": "0.80.0",

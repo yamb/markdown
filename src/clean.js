@@ -24,6 +24,9 @@ for (const key of urlProperties) {
   urlProtocols[key] = protocols[key].map((protocol) => `${protocol}:`);
 }
 
+const blank = new Set(['\t', '\n', '\f', '\r', ' ']);
+const descriptor = /^[\t\n\f\r ]*(?:(\d+w|(?:\d+(?:\.\d+)?|\.\d+)x)[\t\n\f\r ]*)?$/;
+
 const schema = {
   ...defaultSchema,
   tagNames: [
@@ -49,10 +52,10 @@ const schema = {
     th: ['align', 'colSpan', 'rowSpan'],
     hr: ['dataYambIntro'],
     span: [['tabIndex', 0]],
-    img: ['src', 'alt', 'width', 'height', 'loading', 'decoding'],
+    img: ['src', 'srcSet', 'sizes', 'alt', 'width', 'height', 'loading', 'decoding'],
     video: ['src', 'poster', 'controls', 'preload', 'width', 'height'],
     audio: ['src', 'controls', 'preload'],
-    source: ['src', 'type', 'media'],
+    source: ['src', 'srcSet', 'sizes', 'type', 'media'],
     iframe: ['src', 'width', 'height', 'loading', 'allowFullScreen'],
     input: [['type', 'checkbox'], ['disabled', true], 'checked']
   },
@@ -87,6 +90,81 @@ function iframe(src) {
   }
 }
 
+function resolve(value, documentURL, allowed) {
+  try {
+    const resolved = new URL(String(value), documentURL);
+
+    return allowed.includes(resolved.protocol) ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function srcset(value, documentURL, field, budget) {
+  const list = [];
+  let index = 0;
+  let length = 0;
+
+  while (index < value.length) {
+    if (blank.has(value[index]) || value[index] === ',') {
+      index++;
+      continue;
+    }
+
+    let end = index;
+
+    while (end < value.length && !blank.has(value[end])) {
+      end++;
+    }
+
+    let url = value.slice(index, end);
+    let tail = '';
+
+    if (url.endsWith(',')) {
+      let last = url.length;
+
+      while (url[last - 1] === ',') {
+        last--;
+      }
+
+      url = url.slice(0, last);
+    } else {
+      const next = value.indexOf(',', end);
+      tail = value.slice(end, next === -1 ? value.length : next);
+      end = next === -1 ? value.length : next;
+    }
+
+    if (tail.includes('(')) {
+      break;
+    }
+
+    index = end;
+
+    const match = descriptor.exec(tail);
+    const resolved =
+      match &&
+      (match[1] === undefined || Number.parseFloat(match[1]) > 0) &&
+      resolve(url, documentURL, urlProtocols.src);
+
+    if (!resolved || resolved.href.endsWith(',')) {
+      continue;
+    }
+
+    const candidate = match[1] === undefined ? resolved.href : `${resolved.href} ${match[1]}`;
+    length += candidate.length + 2;
+
+    if (length > budget) {
+      throw Object.assign(failure('YAMB_CONTENT_LIMIT', `${field} srcset exceeds budget`), {
+        field
+      });
+    }
+
+    list.push(candidate);
+  }
+
+  return list.join(', ');
+}
+
 function rewriteFragment(resolved, document, anchors) {
   const target = new URL(resolved);
   target.hash = '';
@@ -108,7 +186,21 @@ function rewriteFragment(resolved, document, anchors) {
   }
 }
 
-function tree(value, documentURL, field, marker, anchors) {
+function policy(attributes) {
+  if (attributes === undefined) {
+    return schema;
+  }
+
+  const merged = { ...schema.attributes };
+
+  for (const [tag, list] of Object.entries(attributes)) {
+    merged[tag] = Object.hasOwn(merged, tag) ? [...merged[tag], ...list] : list;
+  }
+
+  return { ...schema, attributes: merged };
+}
+
+function tree(value, documentURL, field, marker, anchors, rules = schema) {
   string(value, 5000000, field);
 
   const parsed = fromHtml(value, { fragment: true });
@@ -143,7 +235,7 @@ function tree(value, documentURL, field, marker, anchors) {
   });
   input(!marker || matches === 1, `${field} introduction marker lost or duplicated`);
 
-  const cleaned = sanitize(parsed, schema);
+  const cleaned = sanitize(parsed, rules);
   const index = marker
     ? cleaned.children.findIndex(
         (node) => node.tagName === 'hr' && Object.hasOwn(node.properties, 'dataYambIntro')
@@ -168,9 +260,16 @@ function tree(value, documentURL, field, marker, anchors) {
     delete node.properties.dataYambIntro;
     hasMedia ||= media.has(node.tagName);
 
+    for (const key of Object.keys(node.properties)) {
+      if (Array.isArray(node.properties[key]) && node.properties[key].length === 0) {
+        delete node.properties[key];
+      }
+    }
+
     if (
       node.properties.href !== undefined ||
       node.properties.src !== undefined ||
+      node.properties.srcSet !== undefined ||
       node.properties.poster !== undefined
     ) {
       links.push(node);
@@ -188,6 +287,7 @@ function tree(value, documentURL, field, marker, anchors) {
 
   const document = new URL(documentURL);
   document.hash = '';
+  let budget = 5000000;
 
   for (const node of links) {
     for (const key of urlProperties) {
@@ -195,16 +295,9 @@ function tree(value, documentURL, field, marker, anchors) {
         continue;
       }
 
-      let resolved;
+      const resolved = resolve(node.properties[key], documentURL, urlProtocols[key]);
 
-      try {
-        resolved = new URL(String(node.properties[key]), documentURL);
-      } catch {
-        delete node.properties[key];
-        continue;
-      }
-
-      if (!urlProtocols[key].includes(resolved.protocol)) {
+      if (!resolved) {
         delete node.properties[key];
         continue;
       }
@@ -214,6 +307,17 @@ function tree(value, documentURL, field, marker, anchors) {
       }
 
       node.properties[key] = resolved.href;
+    }
+
+    if (node.properties.srcSet !== undefined) {
+      const candidates = srcset(String(node.properties.srcSet), documentURL, field, budget);
+      budget -= candidates.length;
+
+      if (candidates) {
+        node.properties.srcSet = candidates;
+      } else {
+        delete node.properties.srcSet;
+      }
     }
   }
 
@@ -258,6 +362,7 @@ function feed(node) {
 
 export function clean(payload) {
   const anchors = new Map();
+  const rules = policy(payload.attributes);
 
   function field(value, name) {
     input(value && typeof value === 'object', `${name} must contain HTML`);
@@ -267,15 +372,31 @@ export function clean(payload) {
       tree: cleaned,
       index,
       hasMedia
-    } = tree(value.html, payload.documentURL, `${name}.html`, value.introduction?.marker, anchors);
-    const html = string(toHtml(cleaned), 5000000, `${name}.html`);
+    } = tree(
+      value.html,
+      payload.documentURL,
+      `${name}.html`,
+      value.introduction?.marker,
+      anchors,
+      rules
+    );
+    const lead = value.introduction ? toHtml(cleaned.children.slice(0, index)) : undefined;
+    const body = value.introduction ? toHtml(cleaned.children.slice(index + 1)) : undefined;
+    const html = string(
+      value.introduction ? `${lead}${toHtml(cleaned.children[index])}${body}` : toHtml(cleaned),
+      5000000,
+      `${name}.html`
+    );
 
     return {
       tree: cleaned,
       html,
       feedHtml: hasMedia ? string(toHtml(feed(cleaned)), 5000000, `${name}.feedHtml`) : html,
       plain: toText(cleaned),
-      introduction: value.introduction ? { lines: [...value.introduction.lines], index } : null
+      introduction: value.introduction
+        ? { lines: [...value.introduction.lines], index, html: lead }
+        : null,
+      body: value.introduction ? { html: body } : null
     };
   }
 
