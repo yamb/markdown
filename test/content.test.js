@@ -283,7 +283,30 @@ test('unsafe HTML and URLs are cleaned while media get safe feed projections', a
   assert.doesNotMatch(result.text.feedHtml, /<(?:iframe|audio|video)/);
   assert.match(result.text.feedHtml, /href="https:\/\/example.test\/blog\/2026\/11\/video.mp4"/);
   assert.match(result.text.feedHtml, /Movie/);
+  assert.match(result.text.feedHtml, />Open video<\/a>/);
+  assert.match(result.text.feedHtml, />Open audio<\/a>/);
   assert.match(result.text.plain, /Safe link/);
+});
+
+test('feed labels replace the default media link text', async () => {
+  await using md = markdown();
+  const source = post(
+    '<video src="./video.mp4"></video><audio src="./audio.mp3"></audio><iframe src="https://www.youtube.com/embed/1" title="Movie"></iframe>'
+  );
+  const feedLabels = { video: 'Watch video', audio: 'Listen to audio' };
+  const result = await prepare(source, [md, md.html(), md.clean({ feedLabels })], ctx);
+
+  assert.match(result.text.feedHtml, />Watch video<\/a>/);
+  assert.match(result.text.feedHtml, />Listen to audio<\/a>/);
+  assert.match(result.text.feedHtml, />Movie<\/a>/);
+
+  const partial = await prepare(
+    source,
+    [md, md.html(), md.clean({ feedLabels: { audio: 'Listen' } })],
+    ctx
+  );
+  assert.match(partial.text.feedHtml, />Open video<\/a>/);
+  assert.match(partial.text.feedHtml, />Listen<\/a>/);
 });
 
 test('picture candidates resolve like src and unsafe candidates are dropped', async () => {
@@ -363,6 +386,49 @@ test('configured attributes survive only on their tags and with their values', a
   assert.equal((await prototypeKey.transform(html, ctx)).text.html, strict.text.html);
 });
 
+test('configured legacy tags and attributes survive, URL attributes resolve', async () => {
+  await using md = markdown();
+  const source = post(
+    '<header><h2 id="head">Head</h2></header>\n\n<p><img src="./a.jpg" align="left" itemprop="image"> <img src="./b.jpg" align="middle"> <cite>Book</cite></p>\n\n<blockquote cite="./source">a</blockquote><blockquote cite="javascript:alert(1)">b</blockquote><blockquote cite="#head">d</blockquote><q cite="https://other.test/q">c</q>\n\n<iframe src="https://www.youtube.com/embed/x" frameborder="0" marginheight="0" marginwidth="0" scrolling="no"></iframe>'
+  );
+  const options = {
+    tagNames: ['header', 'cite'],
+    attributes: {
+      img: [['align', 'left', 'right'], 'itemprop'],
+      blockquote: ['cite'],
+      iframe: ['frameborder', 'marginheight', 'marginwidth', 'scrolling']
+    }
+  };
+
+  const strict = await prepare(source, [md, md.html(), md.clean()], ctx);
+  assert.doesNotMatch(
+    strict.text.html,
+    /<header|<cite|align=|itemprop|cite=|frameborder|marginheight|marginwidth|scrolling/
+  );
+  assert.match(strict.text.html, /Book/);
+
+  const result = await prepare(source, [md, md.html(), md.clean(options)], ctx);
+  const { tree } = result.text;
+  const [header] = elements(tree, 'header');
+  const [first, second] = elements(tree, 'img');
+  const [cited, unsafe, local] = elements(tree, 'blockquote');
+
+  assert.equal(header.children.find((node) => node.tagName === 'h2').children[0].value, 'Head');
+  assert.equal(elements(tree, 'cite')[0].children[0].value, 'Book');
+  assert.equal(first.properties.align, 'left');
+  assert.deepEqual(first.properties.itemProp, ['image']);
+  assert.ok(!Object.hasOwn(second.properties, 'align'));
+  assert.equal(cited.properties.cite, 'https://example.test/blog/2026/11/source');
+  assert.ok(!Object.hasOwn(unsafe.properties, 'cite'));
+  assert.match(local.properties.cite, /#user-content-head$/);
+  assert.ok(!Object.hasOwn(elements(tree, 'q')[0].properties, 'cite'));
+  assert.match(
+    result.text.html,
+    /<iframe src="https:\/\/www\.youtube\.com\/embed\/x" frameborder="0" marginheight="0" marginwidth="0" scrolling="no">/
+  );
+  assert.doesNotMatch(result.text.html, /javascript:/);
+});
+
 test('cleanup options reject unknown keys and unsafe or reserved attributes', async () => {
   await using md = markdown();
   for (const options of [
@@ -370,6 +436,10 @@ test('cleanup options reject unknown keys and unsafe or reserved attributes', as
     {},
     { attributes: undefined },
     { attributes: {} },
+    { tagNames: undefined },
+    { tagNames: [] },
+    { feedLabels: undefined },
+    { feedLabels: {} },
     Object.assign(Object.create(null), { attributes: Object.create(null) })
   ]) {
     assert.equal(md.clean(options).name, 'clean-html');
@@ -398,7 +468,26 @@ test('cleanup options reject unknown keys and unsafe or reserved attributes', as
     { attributes: { a: Object.assign([], { 1: 'rel' }) } },
     { attributes: { h2: [['aria-level', '2']] } },
     { attributes: { a: [Object.create(null)] } },
-    { attributes: { a: [[Object.create(null), 'x']] } }
+    { attributes: { a: [[Object.create(null), 'x']] } },
+    { attributes: { iframe: ['srcdoc'] } },
+    { attributes: { img: ['onerror'] } },
+    { attributes: { blockquote: [['cite', 'https://example.test/']] } },
+    { attributes: { iframe: [['marginheight', '0']] } },
+    { tagNames: 'header' },
+    { tagNames: ['Header'] },
+    { tagNames: ['header', 'header'] },
+    { tagNames: ['script'] },
+    { tagNames: ['style'] },
+    { tagNames: ['form'] },
+    { tagNames: ['svg'] },
+    { tagNames: ['p'] },
+    { tagNames: [1] },
+    { feedLabels: null },
+    { feedLabels: ['Watch'] },
+    { feedLabels: { image: 'View' } },
+    { feedLabels: { video: 1 } },
+    { feedLabels: { video: ' ' } },
+    { feedLabels: { audio: '\uD800' } }
   ]) {
     assert.throws(() => md.clean(options), { code: 'YAMB_CONTENT_INPUT' }, JSON.stringify(options));
   }

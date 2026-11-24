@@ -65,14 +65,14 @@ The first top-level thematic break whose entire source line is exactly `---`, wi
 
 ## Cleanup and URLs
 
-Cleanup parses HTML fragments with `hast-util-from-html` and uses `hast-util-sanitize`'s default schema with the policy in [src/clean.js](../src/clean.js). It removes executable elements, event/style/srcdoc attributes and data attributes that the [cleanup options](#additional-attributes) do not allow. Classes, IDs, language/direction and selected presentation/media attributes survive; empty space-separated attributes such as `class=""` are removed. Checkboxes are forced disabled; only spoiler spans retain `tabindex="0"`. Cleanup makes no network requests.
+Cleanup parses HTML fragments with `hast-util-from-html` and uses `hast-util-sanitize`'s default schema with the policy in [src/clean.js](../src/clean.js). It removes executable elements, event/style/srcdoc attributes and elements and data attributes that the [cleanup options](#additional-elements-and-attributes) do not allow. Classes, IDs, language/direction and selected presentation/media attributes survive; empty space-separated attributes such as `class=""` are removed. Checkboxes are forced disabled; only spoiler spans retain `tabindex="0"`. Cleanup makes no network requests.
 
 | Content | Policy |
 | --- | --- |
 | Links | HTTP, HTTPS, mailto and tel |
 | Images, video/audio/source, posters, `srcset` candidates | HTTP and HTTPS resources; figures/captions and `sizes` retained |
 | Iframes | Absolute HTTP(S), no credentials; exact hostname `www.youtube.com`, `www.youtube-nocookie.com`, `player.vimeo.com` or `www.slideshare.net` |
-| Feed HTML | Images/captions retained; video/audio/iframe replaced by a link to `src` or the first source URL, using title or a media label; missing safe sources produce no link |
+| Feed HTML | Images/captions retained; video/audio/iframe replaced by a link to `src` or the first source URL, using the element title or a [feed label](#feed-labels); missing safe sources produce no link |
 
 Relative and protocol-relative iframe sources fail the policy before URL resolution, even on an allowed document origin. Other resource URLs resolve normally. Each `srcset` candidate on `img` and `source` resolves like `src`; a candidate with another protocol, several descriptors or a descriptor other than a positive integer `w` or decimal `x` is dropped, a parenthesis in descriptors ends the attribute, and an attribute with no candidates left is removed. The schema restricts markup and protocols; it does not fetch, proxy or authenticate destination content. Put cleanup last and escape plain fields for the renderer's output format.
 
@@ -84,17 +84,28 @@ The document URL is `url(source.uri ?? '', ctx.base).href` from `yamb/url`, whic
 | `./cover.jpg` relative to that document         | `https://example.test/blog/2026/11/cover.jpg` |
 | `/image.jpg` relative to that document          | `https://example.test/image.jpg`              |
 
-### Additional attributes
+### Additional elements and attributes
 
-`md.clean({ attributes })` keeps extra attributes on elements the policy already allows. Keys are lowercase tag names. Each entry is an HTML attribute name, or a `[name, ...values]` tuple that also restricts the value, compared case-sensitively; space-separated attributes such as `rel` keep only the listed tokens and drop the attribute when none remain. Only `target`, `rel`, `data-*` and `aria-*` are accepted, in lowercase ASCII letters and digits with hyphen-separated segments. Other names, `data-yamb` and `data-yamb-*`, repeated names, tuples for numeric attributes, unknown option keys and malformed entries throw `YAMB_CONTENT_INPUT` when the stage is created.
+`md.clean({ tagNames, attributes })` extends the policy. `tagNames` keeps extra elements that cleanup otherwise unwraps; only `abbr`, `address`, `article`, `aside`, `cite`, `footer`, `header` and `small` are accepted. A kept element is no longer unwrapped, so an introduction boundary inside it is not at the top level and the transform fails.
+
+`attributes` keeps extra attributes on allowed elements, including those added by `tagNames`. Keys are lowercase tag names. Each entry is an HTML attribute name, or a `[name, ...values]` tuple that also restricts the value, compared case-sensitively, which cannot narrow an attribute the policy already allows on that tag; space-separated attributes such as `rel` keep only the listed tokens and drop the attribute when none remain. Accepted names are `target`, `rel`, `data-*` and `aria-*`, in lowercase ASCII letters and digits with hyphen-separated segments, and the legacy `align`, `cite`, `frameborder`, `itemprop`, `marginheight`, `marginwidth` and `scrolling`. `cite` is resolved against the document and its fragment rewritten like `href`, and dropped unless it is `http` or `https`. Other names, `data-yamb` and `data-yamb-*`, repeated names, tuples for numeric attributes or `cite`, unknown option keys and malformed entries throw `YAMB_CONTENT_INPUT` when the stage is created.
 
 Restrict `target` and `rel` with tuples: a bare `rel` keeps author values such as `opener`. Cleanup prefixes `aria-describedby` and `aria-labelledby` like IDs but does not inspect other data or ARIA values: references such as `aria-controls` can name host page IDs, and scripts that read URLs from data attributes apply their own policy. The options change the output; include them in the application's cache key.
 
 ```js
 const clean = md.clean({
-  attributes: { a: [['target', '_blank'], ['rel', 'nofollow'], 'data-gallery'] }
+  tagNames: ['header', 'cite'],
+  attributes: {
+    a: [['target', '_blank'], ['rel', 'nofollow'], 'data-gallery'],
+    img: [['align', 'left', 'right']],
+    blockquote: ['cite']
+  }
 });
 ```
+
+### Feed labels
+
+`md.clean({ feedLabels: { video, audio } })` sets the text of the feed link that replaces a media element without a title. `video` also covers iframes. The defaults are `Open video` and `Open audio`. Each label is a well-formed, non-blank string of at most 200 UTF-16 units; other keys and values throw `YAMB_CONTENT_INPUT` when the stage is created. Labels change the output; include them in the application's cache key.
 
 ### Fragments
 
