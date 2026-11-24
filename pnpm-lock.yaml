@@ -226,8 +226,8 @@ importers:
         specifier: 1.95.0
         version: 1.95.0
       yamb:
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 1.0.3
+        version: 1.0.3
 
 packages:
 
@@ -813,8 +813,8 @@ packages:
   web-namespaces@2.0.1:
     resolution: {integrity: sha512-bKr1DkiNa2krS7qxNtdrtHAmzuYGFQLiQ13TsorsdT6ULTkPLKuu5+GsFpDlg6JFjUTwX2DyhMPG2be8uPrqsQ==}
 
-  yamb@1.0.0:
-    resolution: {integrity: sha512-h+rCo6B4uEgGYq62aC0ndpRXgsjTi9c9gEVIawYC4slBOg/RXtzPz4KahX26S3Byt/Nk5wrnWVnN4NmwPJ5UIQ==}
+  yamb@1.0.3:
+    resolution: {integrity: sha512-CD6q13DzvAW45ZkWqc6YmscYdTRvOs6wysJnFh+TQtWkYvOyn6uM9ZNm/orDF1obiPfSlXYJZkGWCmAZJN8uWQ==}
     engines: {node: '>=26.13.0'}
 
   zod@4.6.7:
@@ -1202,7 +1202,7 @@ snapshots:
 
   web-namespaces@2.0.1: {}
 
-  yamb@1.0.0:
+  yamb@1.0.3:
     dependencies:
       zod: 4.6.7
 

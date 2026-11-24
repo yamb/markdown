@@ -1,6 +1,6 @@
 {
   "name": "yamb-markdown",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Editable Markdown tokens and sanitized HTML and text projections for Yamb",
   "keywords": [
     "html",
@@ -55,7 +55,7 @@
   "devDependencies": {
     "oxfmt": "0.80.0",
     "oxlint": "1.95.0",
-    "yamb": "1.0.0"
+    "yamb": "1.0.3"
   },
   "peerDependencies": {
     "yamb": "^1.0.0"
