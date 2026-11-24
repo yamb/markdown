@@ -1,3 +1,5 @@
+import { find, html as properties } from 'property-information';
+
 import { CoverSchema } from '#core/schemas';
 import { url } from '#core/url';
 
@@ -6,6 +8,9 @@ import { execution } from './execution.js';
 import { failure, input, string } from './limits.js';
 
 const { version } = manifest;
+const tagName = /^[a-z][a-z0-9]*$/;
+const attributeName = /^(?:target|rel|(?:data|aria)-[a-z0-9]+(?:-[a-z0-9]+)*)$/;
+const reserved = /^data-yamb(?:-|$)/;
 const escape = (value) =>
   value
     .replaceAll('&', '&amp;')
@@ -21,6 +26,78 @@ function cover(value) {
   }
 
   return result.data;
+}
+
+function record(value) {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
+}
+
+function attribute(entry, tag, seen) {
+  const tuple = Array.isArray(entry);
+  const [name, ...values] = tuple ? entry : [entry];
+
+  input(
+    typeof name === 'string' && attributeName.test(name) && !reserved.test(name),
+    `Unsupported cleanup attribute: ${typeof name === 'string' ? name : typeof name}`
+  );
+  input(!seen.has(name), `attributes.${tag} repeats ${name}`);
+  seen.add(name);
+
+  const info = find(properties, name);
+
+  if (!tuple) {
+    return info.property;
+  }
+
+  input(!info.number, `attributes.${tag}.${name} cannot restrict values`);
+  input(values.length > 0, `attributes.${tag}.${name} needs allowed values`);
+
+  for (const value of values) {
+    input(
+      typeof value === 'string' && !(info.spaceSeparated && /[\t\n\f\r ]/.test(value)),
+      `attributes.${tag}.${name} values must be single strings`
+    );
+  }
+
+  return [info.property, ...values];
+}
+
+function attributes(options) {
+  input(record(options), 'Expected cleanup options');
+
+  for (const key of Reflect.ownKeys(options)) {
+    input(key === 'attributes', `Unsupported cleanup option: ${String(key)}`);
+  }
+
+  if (options.attributes === undefined) {
+    return;
+  }
+
+  input(record(options.attributes), 'attributes must be an object');
+
+  const result = {};
+
+  for (const tag of Reflect.ownKeys(options.attributes)) {
+    input(typeof tag === 'string' && tagName.test(tag), `Unsupported cleanup tag: ${String(tag)}`);
+
+    const list = options.attributes[tag];
+    input(Array.isArray(list), `attributes.${tag} must be an array`);
+
+    const seen = new Set();
+    result[tag] = [];
+
+    for (const entry of list) {
+      result[tag].push(attribute(entry, tag, seen));
+    }
+  }
+
+  return result;
 }
 
 function postCover(value) {
@@ -146,7 +223,9 @@ export function markdown() {
       };
     },
 
-    clean() {
+    clean(options = {}) {
+      const allowed = attributes(options);
+
       return {
         name: 'clean-html',
         version,
@@ -171,6 +250,10 @@ export function markdown() {
 
           if (image.caption !== undefined) {
             payload.caption = image.caption;
+          }
+
+          if (allowed !== undefined) {
+            payload.attributes = allowed;
           }
 
           const { caption, ...prepared } = await owner.run('clean', payload, ctx);

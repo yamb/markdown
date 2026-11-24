@@ -4,13 +4,13 @@ Use the [quick start](../readme.md#quick-start) to run the parse → HTML → cl
 
 ## Stages and ownership
 
-`markdown()` takes no configuration and returns the `markdown` transformer plus `html()`, `clean()`, `close()` and `Symbol.asyncDispose`. Each stage exposes `{ name, version, transform(value, ctx) }`; `html()` and `clean()` share their owner's worker. Context supplies `base: URL` for cleanup and optional `signal: AbortSignal` for all stages.
+`markdown()` takes no configuration and returns the `markdown` transformer plus `html()`, `clean(options?)`, `close()` and `Symbol.asyncDispose`. Each stage exposes `{ name, version, transform(value, ctx) }`; `html()` and `clean()` share their owner's worker. Context supplies `base: URL` for cleanup and optional `signal: AbortSignal` for all stages.
 
 | Stage | Input → result | `text` and optional `preview` |
 | --- | --- | --- |
 | `md` (`markdown`) | PostData → TokenPost | `{ tokens, introduction: null \| { lines } }` |
 | `md.html()` (`markdown-html`) | TokenPost → HtmlPost | `{ html, introduction: null \| { lines, marker } }` |
-| `md.clean()` (`clean-html`) | HtmlPost → PreparedPost | `{ tree, html, feedHtml, plain, introduction: null \| { lines, index } }` |
+| `md.clean()` (`clean-html`) | HtmlPost → PreparedPost | `{ tree, html, feedHtml, plain, introduction: null \| { lines, index, html }, body: null \| { html } }` |
 
 All three forms carry `{ source, title, cover, text, preview? }`. Title and cover caption are plain in TokenPost and PreparedPost, and escaped in HtmlPost. Markdown leaves cover alt intact. Derived cover is independent of source cover; cleanup resolves its URL. Source fields, including cover and preview, remain unchanged. An empty preview stays present and empty. The full text retains its introduction.
 
@@ -61,20 +61,20 @@ The first top-level thematic break whose entire source line is exactly `---`, wi
 
 `introduction` is `null` without a boundary. Otherwise `lines: [start, end]` is its zero-based source range with an exclusive end. Original CRLF/CR remain in `source`; parsing normalizes line endings. The selected token carries `meta.yambIntroduction: true`. HtmlPost uses an unpredictable `marker` and matching `data-yamb-intro` attribute to preserve provenance across HTML transforms. A missing/duplicated marker or a boundary moved out of the top level fails with `YAMB_CONTENT_INPUT`; author-supplied attributes cannot select a boundary. Cleanup removes temporary markers and returns the actual zero-based `index` of the boundary `<hr>` in `tree.children`, including whitespace nodes in the count.
 
-Use `tree.children.slice(0, index)` for the introduction and `tree.children.slice(index + 1)` for the body. Preview is parsed and cleaned independently with the same boundary rules.
+`introduction.html` serializes the nodes before the boundary and `body.html` the nodes after it, without the `<hr>`; the page `html` joins them around it. Both are page HTML, not feed projections. `body` is `null` exactly when `introduction` is. The same parts are `tree.children.slice(0, index)` and `tree.children.slice(index + 1)` in HAST. Preview is parsed and cleaned independently with the same boundary rules.
 
 ## Cleanup and URLs
 
-Cleanup parses HTML fragments with `hast-util-from-html` and uses `hast-util-sanitize`'s default schema with the policy in [src/clean.js](../src/clean.js). It removes executable elements, event/style/srcdoc attributes and arbitrary data attributes. Classes, IDs, language/direction and selected presentation/media attributes survive. Checkboxes are forced disabled; only spoiler spans retain `tabindex="0"`. Cleanup makes no network requests.
+Cleanup parses HTML fragments with `hast-util-from-html` and uses `hast-util-sanitize`'s default schema with the policy in [src/clean.js](../src/clean.js). It removes executable elements, event/style/srcdoc attributes and data attributes that the [cleanup options](#additional-attributes) do not allow. Classes, IDs, language/direction and selected presentation/media attributes survive; empty space-separated attributes such as `class=""` are removed. Checkboxes are forced disabled; only spoiler spans retain `tabindex="0"`. Cleanup makes no network requests.
 
 | Content | Policy |
 | --- | --- |
 | Links | HTTP, HTTPS, mailto and tel |
-| Images, video/audio/source, posters | HTTP and HTTPS resources; figures/captions retained |
+| Images, video/audio/source, posters, `srcset` candidates | HTTP and HTTPS resources; figures/captions and `sizes` retained |
 | Iframes | Absolute HTTP(S), no credentials; exact hostname `www.youtube.com`, `www.youtube-nocookie.com`, `player.vimeo.com` or `www.slideshare.net` |
 | Feed HTML | Images/captions retained; video/audio/iframe replaced by a link to `src` or the first source URL, using title or a media label; missing safe sources produce no link |
 
-Relative and protocol-relative iframe sources fail the policy before URL resolution, even on an allowed document origin. Other resource URLs resolve normally. The schema restricts markup and protocols; it does not fetch, proxy or authenticate destination content. Put cleanup last and escape plain fields for the renderer's output format.
+Relative and protocol-relative iframe sources fail the policy before URL resolution, even on an allowed document origin. Other resource URLs resolve normally. Each `srcset` candidate on `img` and `source` resolves like `src`; a candidate with another protocol, several descriptors or a descriptor other than a positive integer `w` or decimal `x` is dropped, a parenthesis in descriptors ends the attribute, and an attribute with no candidates left is removed. The schema restricts markup and protocols; it does not fetch, proxy or authenticate destination content. Put cleanup last and escape plain fields for the renderer's output format.
 
 The document URL is `url(source.uri ?? '', ctx.base).href` from `yamb/url`, which treats the blog base as a directory. Resources and derived `cover.url` then use native `new URL(value, documentURL)`:
 
@@ -83,6 +83,20 @@ The document URL is `url(source.uri ?? '', ctx.base).href` from `yamb/url`, whic
 | `https://example.test/blog` / `2026/11/example` | `https://example.test/blog/2026/11/example`   |
 | `./cover.jpg` relative to that document         | `https://example.test/blog/2026/11/cover.jpg` |
 | `/image.jpg` relative to that document          | `https://example.test/image.jpg`              |
+
+### Additional attributes
+
+`md.clean({ attributes })` keeps extra attributes on elements the policy already allows. Keys are lowercase tag names. Each entry is an HTML attribute name, or a `[name, ...values]` tuple that also restricts the value, compared case-sensitively; space-separated attributes such as `rel` keep only the listed tokens and drop the attribute when none remain. Only `target`, `rel`, `data-*` and `aria-*` are accepted, in lowercase ASCII letters and digits with hyphen-separated segments. Other names, `data-yamb` and `data-yamb-*`, repeated names, tuples for numeric attributes, unknown option keys and malformed entries throw `YAMB_CONTENT_INPUT` when the stage is created.
+
+Restrict `target` and `rel` with tuples: a bare `rel` keeps author values such as `opener`. Cleanup prefixes `aria-describedby` and `aria-labelledby` like IDs but does not inspect other data or ARIA values: references such as `aria-controls` can name host page IDs, and scripts that read URLs from data attributes apply their own policy. The options change the output; include them in the application's cache key.
+
+```js
+const clean = md.clean({
+  attributes: { a: [['target', '_blank'], ['rel', 'nofollow'], 'data-gallery'] }
+});
+```
+
+### Fragments
 
 Sanitized IDs receive `user-content-`. Local href fragments are rewritten only when they match a surviving literal ID and resolve to the same document path and query. Fragment decoding and final ID encoding happen once, preserving Unicode and literal percent signs. Unknown/malformed fragments and links to a different document/query keep their resolved fragment. Preview can target full-text IDs; full text is cleaned first. Build navigation from final HAST IDs.
 

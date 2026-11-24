@@ -10,6 +10,6 @@ The [queue](../src/execution.js) bounds admitted work per owner. Cancellation of
 
 ## Introduction provenance
 
-[Parsing](../src/parse.js) selects the first eligible thematic-break token from the source. [Serialization](../src/html.js) attaches a per-result marker to that token’s HTML. [Cleanup](../src/clean.js) requires exactly one matching top-level break, drops the marker and returns its position in the final tree. Custom stages must carry the boundary metadata forward. Author HTML cannot establish a boundary by supplying an attribute.
+[Parsing](../src/parse.js) selects the first eligible thematic-break token from the source. [Serialization](../src/html.js) attaches a per-result marker to that token’s HTML. [Cleanup](../src/clean.js) requires exactly one matching top-level break, drops the marker, returns its position in the final tree and serializes the introduction and body around it. Custom stages must carry the boundary metadata forward. Author HTML cannot establish a boundary by supplying an attribute.
 
 See the [API reference](../api/readme.md) for stage shapes, limits and the cleanup policy.
