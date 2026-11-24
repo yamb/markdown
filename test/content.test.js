@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { toHtml } from 'hast-util-to-html';
 import { prepare } from 'yamb/transform';
 
 import { markdown } from '../src/index.js';
@@ -139,19 +140,45 @@ for (const [input, boundary] of [
     assert.deepEqual(result.text.introduction?.lines ?? null, boundary);
 
     if (boundary) {
-      assert.equal(result.text.tree.children[result.text.introduction.index].tagName, 'hr');
-      assert.ok(!Object.hasOwn(result.text.introduction, 'marker'));
+      const { introduction, body } = result.text;
+      assert.equal(result.text.tree.children[introduction.index].tagName, 'hr');
+      assert.ok(!Object.hasOwn(introduction, 'marker'));
+      assert.equal(result.text.html, `${introduction.html}<hr>${body.html}`);
+    } else {
+      assert.equal(result.text.body, null);
     }
 
+    assert.equal(result.text.html, toHtml(result.text.tree));
     assert.doesNotMatch(result.text.html, /data-yamb-intro/);
   });
 }
+
+test('introduction and body arrive as ready HTML in text and preview', async () => {
+  const result = await prepareText('Intro\n\n---\n\nBody\n\n---\n\nEnd', {
+    preview: 'Lead\n\n---\n\nMore'
+  });
+
+  assert.equal(result.text.introduction.html, '<p>Intro</p>\n');
+  assert.equal(result.text.body.html, '\n<p>Body</p>\n<hr>\n<p>End</p>\n');
+  assert.equal(result.preview.introduction.html, '<p>Lead</p>\n');
+  assert.equal(result.preview.body.html, '\n<p>More</p>\n');
+
+  const edge = await prepareText('---');
+  assert.equal(edge.text.introduction.html, '');
+  assert.equal(edge.text.body.html, '\n');
+
+  const none = await prepareText('Plain', { preview: 'Short' });
+  assert.equal(none.preview.introduction, null);
+  assert.equal(none.preview.body, null);
+});
 
 test('author marker spoof is removed and cannot steal the real boundary', async () => {
   const result = await prepareText('<hr data-yamb-intro="">\n\nIntro\n\n---\n\nBody');
   assert.deepEqual(result.text.introduction.lines, [4, 5]);
   assert.equal(elements(result.text.tree, 'hr').length, 2);
   assert.ok(result.text.introduction.index > 0);
+  assert.match(result.text.introduction.html, /^<hr>\n<p>Intro<\/p>/);
+  assert.equal(result.text.body.html, '\n<p>Body</p>\n');
   assert.doesNotMatch(result.text.html, /data-yamb-intro/);
 });
 
@@ -257,6 +284,124 @@ test('unsafe HTML and URLs are cleaned while media get safe feed projections', a
   assert.match(result.text.feedHtml, /href="https:\/\/example.test\/blog\/2026\/11\/video.mp4"/);
   assert.match(result.text.feedHtml, /Movie/);
   assert.match(result.text.plain, /Safe link/);
+});
+
+test('picture candidates resolve like src and unsafe candidates are dropped', async () => {
+  const result = await prepareText(
+    '<picture><source type="image/avif" srcset="./a.avif 1x, /b.avif 2x" sizes="(max-width: 600px) 100vw, 600px"><img src="./a.jpg" srcset="./a.jpg 640w,./b.jpg 1280w" sizes="100vw" alt="Photo"></picture><video src="./v.mp4"></video>\n\n<img srcset="javascript:evil() 1x, data:x 2x, ./ok.jpg 3x, ./bad.jpg 2q, ./zero.jpg 0w, ./none.jpg 0.0x, ./ctl,&#1; 1x, ./c,d.jpg 4x, ./e.jpg, ./f.jpg 1.5x"><img srcset="javascript:evil() 1x, ,"><img srcset="https://example.test/x.jpg 1x 2x"><img srcset="./p.jpg 1x, ./q.jpg (1, ./r.jpg 2x)">'
+  );
+  const [source] = elements(result.text.tree, 'source');
+  const [img, mixed, unsafe, malformed, nested] = elements(result.text.tree, 'img');
+
+  assert.equal(
+    source.properties.srcSet,
+    'https://example.test/blog/2026/11/a.avif 1x, https://example.test/b.avif 2x'
+  );
+  assert.equal(source.properties.sizes, '(max-width: 600px) 100vw, 600px');
+  assert.equal(
+    img.properties.srcSet,
+    'https://example.test/blog/2026/11/a.jpg 640w, https://example.test/blog/2026/11/b.jpg 1280w'
+  );
+  assert.equal(img.properties.sizes, '100vw');
+  assert.equal(
+    mixed.properties.srcSet,
+    'https://example.test/blog/2026/11/ok.jpg 3x, https://example.test/blog/2026/11/c,d.jpg 4x, https://example.test/blog/2026/11/e.jpg, https://example.test/blog/2026/11/f.jpg 1.5x'
+  );
+  assert.ok(!Object.hasOwn(unsafe.properties, 'srcSet'));
+  assert.ok(!Object.hasOwn(malformed.properties, 'srcSet'));
+  assert.equal(nested.properties.srcSet, 'https://example.test/blog/2026/11/p.jpg 1x');
+  assert.doesNotMatch(result.text.html, /javascript:|data:x/);
+  assert.notEqual(result.text.feedHtml, result.text.html);
+  assert.ok(
+    result.text.feedHtml.includes(
+      'srcset="https://example.test/blog/2026/11/a.avif 1x, https://example.test/b.avif 2x"'
+    )
+  );
+});
+
+test('configured attributes survive only on their tags and with their values', async () => {
+  await using md = markdown();
+  const source = post(
+    '<a href="./x" target="_blank" rel="nofollow noopener" data-gallery="false" data-other="1" data-2x="2" aria-label="Open" aria-foo="f" aria-hidden="true" onclick="evil()">x</a> <a href="./y" target="_self" aria-hidden="false">y</a> <a href="./z" rel="noopener">z</a>\n\n<p class="" data-gallery="true">p</p>'
+  );
+  const allowed = {
+    a: [
+      ['target', '_blank'],
+      ['rel', 'nofollow'],
+      'data-gallery',
+      'data-2x',
+      'aria-label',
+      'aria-foo',
+      ['aria-hidden', 'true']
+    ]
+  };
+
+  const strict = await prepare(source, [md, md.html(), md.clean()], ctx);
+  assert.doesNotMatch(strict.text.html, /target|rel=|data-|aria-label|onclick/);
+
+  const result = await prepare(source, [md, md.html(), md.clean({ attributes: allowed })], ctx);
+  const [first, second, third] = elements(result.text.tree, 'a');
+
+  assert.deepEqual(first.properties, {
+    href: 'https://example.test/blog/2026/11/x',
+    target: '_blank',
+    rel: ['nofollow'],
+    dataGallery: 'false',
+    data2x: '2',
+    ariaLabel: 'Open',
+    'aria-foo': 'f',
+    ariaHidden: 'true'
+  });
+  assert.deepEqual(second.properties, { href: 'https://example.test/blog/2026/11/y' });
+  assert.deepEqual(third.properties, { href: 'https://example.test/blog/2026/11/z' });
+  assert.deepEqual(elements(result.text.tree, 'p').at(-1).properties, {});
+  assert.doesNotMatch(result.text.html, /rel=""|class=""/);
+  assert.doesNotMatch(strict.text.html, /class=""/);
+
+  const prototypeKey = md.clean({ attributes: { constructor: ['data-x'] } });
+  const html = await md.html().transform(await md.transform(source, ctx), ctx);
+  assert.equal((await prototypeKey.transform(html, ctx)).text.html, strict.text.html);
+});
+
+test('cleanup options reject unknown keys and unsafe or reserved attributes', async () => {
+  await using md = markdown();
+  for (const options of [
+    undefined,
+    {},
+    { attributes: undefined },
+    { attributes: {} },
+    Object.assign(Object.create(null), { attributes: Object.create(null) })
+  ]) {
+    assert.equal(md.clean(options).name, 'clean-html');
+  }
+
+  for (const options of [
+    null,
+    [],
+    { other: true },
+    { attributes: [] },
+    { attributes: { a: 'rel' } },
+    { attributes: { A: ['rel'] } },
+    { attributes: { '*': ['rel'] } },
+    { attributes: { a: ['style'] } },
+    { attributes: { a: ['onclick'] } },
+    { attributes: { a: ['href'] } },
+    { attributes: { img: ['srcset'] } },
+    { attributes: { a: ['Data-x'] } },
+    { attributes: { a: ['dataGallery'] } },
+    { attributes: { hr: ['data-yamb-intro'] } },
+    { attributes: { a: ['data-yamb'] } },
+    { attributes: { a: [['rel']] } },
+    { attributes: { a: [['rel', 1]] } },
+    { attributes: { a: [['rel', 'nofollow noopener']] } },
+    { attributes: { a: ['rel', ['rel', 'nofollow']] } },
+    { attributes: { a: Object.assign([], { 1: 'rel' }) } },
+    { attributes: { h2: [['aria-level', '2']] } },
+    { attributes: { a: [Object.create(null)] } },
+    { attributes: { a: [[Object.create(null), 'x']] } }
+  ]) {
+    assert.throws(() => md.clean(options), { code: 'YAMB_CONTENT_INPUT' }, JSON.stringify(options));
+  }
 });
 
 test('relative and protocol-relative iframe are rejected before URL resolution', async () => {

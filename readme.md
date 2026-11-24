@@ -1,4 +1,4 @@
-# @meritt/yamb-markdown
+# yamb-markdown
 
 [![npm version][npm-image]][npm-url] [![Build status][github-actions-image]][github-actions-url] [![Coverage status][coveralls-image]][coveralls-url] [![Dependency status][libraries-image]][libraries-url]
 
@@ -11,11 +11,11 @@ For GitHub Packages, route the `@yamb` scope to `https://npm.pkg.github.com` and
 Requires Node.js 26.13 or later and `yamb`.
 
 ```bash
-pnpm add yamb @meritt/yamb-markdown
+pnpm add yamb yamb-markdown
 ```
 
 ```js
-import { markdown } from '@meritt/yamb-markdown';
+import { markdown } from 'yamb-markdown';
 import { prepare } from 'yamb/transform';
 
 await using md = markdown();
@@ -54,11 +54,11 @@ For a live Post, pass `post.toJSON()`.
 
 MIT. See `LICENSE`.
 
-[npm-image]: https://img.shields.io/npm/v/@meritt/yamb-markdown?style=flat
-[npm-url]: https://www.npmjs.com/package/@meritt/yamb-markdown
+[npm-image]: https://img.shields.io/npm/v/yamb-markdown?style=flat
+[npm-url]: https://www.npmjs.com/package/yamb-markdown
 [github-actions-image]: https://github.com/yamb/markdown/actions/workflows/ci.yml/badge.svg
 [github-actions-url]: https://github.com/yamb/markdown/actions/workflows/ci.yml
 [coveralls-image]: https://coveralls.io/repos/github/yamb/markdown/badge.svg
 [coveralls-url]: https://coveralls.io/github/yamb/markdown
-[libraries-image]: https://img.shields.io/librariesio/release/npm/%40meritt%2Fyamb-markdown?style=flat
-[libraries-url]: https://libraries.io/npm/%40meritt%2Fyamb-markdown
+[libraries-image]: https://img.shields.io/librariesio/release/npm/yamb-markdown?style=flat
+[libraries-url]: https://libraries.io/npm/yamb-markdown
