@@ -197,7 +197,9 @@ function policy({ tagNames = [], attributes = {} }) {
   return { ...schema, tagNames: [...schema.tagNames, ...tagNames], attributes: merged };
 }
 
-function tree(value, documentURL, field, marker, anchors, rules = schema) {
+const defaultLabels = { audio: 'Open audio', video: 'Open video', spoiler: 'Spoiler' };
+
+function tree(value, documentURL, field, marker, anchors, rules = schema, labels = defaultLabels) {
   string(value, 5000000, field);
 
   const parsed = fromHtml(value, { fragment: true });
@@ -278,7 +280,9 @@ function tree(value, documentURL, field, marker, anchors, rules = schema) {
       node.properties.disabled = true;
     }
 
-    if (node.tagName === 'span' && !node.properties.className?.includes('spoiler')) {
+    if (node.tagName === 'span' && node.properties.className?.includes('spoiler')) {
+      node.properties.title = labels.spoiler;
+    } else if (node.tagName === 'span') {
       delete node.properties.tabIndex;
     }
   });
@@ -322,8 +326,6 @@ function tree(value, documentURL, field, marker, anchors, rules = schema) {
   return { tree: cleaned, index, hasMedia };
 }
 
-const defaultLabels = { audio: 'Open audio', video: 'Open video' };
-
 function feed(node, labels) {
   if (node.type === 'element' && media.has(node.tagName)) {
     const href =
@@ -362,7 +364,7 @@ function feed(node, labels) {
 export function clean(payload) {
   const anchors = new Map();
   const rules = policy(payload);
-  const labels = { ...defaultLabels, ...payload.feedLabels };
+  const labels = { ...defaultLabels, ...payload.labels };
 
   function field(value, name) {
     input(value && typeof value === 'object', `${name} must contain HTML`);
@@ -378,7 +380,8 @@ export function clean(payload) {
       `${name}.html`,
       value.introduction?.marker,
       anchors,
-      rules
+      rules,
+      labels
     );
     const lead = value.introduction ? toHtml(cleaned.children.slice(0, index)) : undefined;
     const body = value.introduction ? toHtml(cleaned.children.slice(index + 1)) : undefined;

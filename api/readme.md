@@ -51,7 +51,7 @@ The parser uses markdown-it's default preset with HTML enabled, linkification an
 | `- [x] Done`, `- [ ] Open` | Disabled task checkboxes                              |
 | `++underlined++`           | `<u>`                                                 |
 | `==highlighted==`          | `<mark>`                                              |
-| `\|\|spoiler\|\|`          | `<span class="spoiler" tabindex="0" title="Спойлер">` |
+| `\|\|spoiler\|\|`          | `<span class="spoiler" tabindex="0" title="Spoiler">` |
 
 Headings, lists, quotes, links, images, indented/fenced code and raw HTML use markdown-it rules. The paired inline extensions support nesting, including identical nested pairs, and a single intervening newline; escaped markers and code remain literal. `|||x|||` leaves one literal pipe on each side of a spoiler. Headings receive IDs only when supplied by HTML or a custom transform. Spoiler styling belongs to the application. Parser plugins and settings are fixed.
 
@@ -72,7 +72,7 @@ Cleanup parses HTML fragments with `hast-util-from-html` and uses `hast-util-san
 | Links | HTTP, HTTPS, mailto and tel |
 | Images, video/audio/source, posters, `srcset` candidates | HTTP and HTTPS resources; figures/captions and `sizes` retained |
 | Iframes | Absolute HTTP(S), no credentials; exact hostname `www.youtube.com`, `www.youtube-nocookie.com`, `player.vimeo.com` or `www.slideshare.net` |
-| Feed HTML | Images/captions retained; video/audio/iframe replaced by a link to `src` or the first source URL, using the element title or a [feed label](#feed-labels); missing safe sources produce no link |
+| Feed HTML | Images/captions retained; video/audio/iframe replaced by a link to `src` or the first source URL, using the element title or a [label](#labels); missing safe sources produce no link |
 
 Relative and protocol-relative iframe sources fail the policy before URL resolution, even on an allowed document origin. Other resource URLs resolve normally. Each `srcset` candidate on `img` and `source` resolves like `src`; a candidate with another protocol, several descriptors or a descriptor other than a positive integer `w` or decimal `x` is dropped, a parenthesis in descriptors ends the attribute, and an attribute with no candidates left is removed. The schema restricts markup and protocols; it does not fetch, proxy or authenticate destination content. Put cleanup last and escape plain fields for the renderer's output format.
 
@@ -103,9 +103,9 @@ const clean = md.clean({
 });
 ```
 
-### Feed labels
+### Labels
 
-`md.clean({ feedLabels: { video, audio } })` sets the text of the feed link that replaces a media element without a title. `video` also covers iframes. The defaults are `Open video` and `Open audio`. Each label is a well-formed, non-blank string of at most 200 UTF-16 units; other keys and values throw `YAMB_CONTENT_INPUT` when the stage is created. Labels change the output; include them in the application's cache key.
+`md.clean({ labels: { spoiler, video, audio } })` sets interface text. `spoiler` is the title of every spoiler span, `Spoiler` by default. `video` and `audio` are the text of the feed link that replaces a media element without a title, `Open video` and `Open audio` by default; `video` also covers iframes. Each label is a well-formed, non-blank string of at most 200 UTF-16 units; other keys and values throw `YAMB_CONTENT_INPUT` when the stage is created. Labels change the output; include them in the application's cache key.
 
 ### Fragments
 

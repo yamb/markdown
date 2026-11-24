@@ -98,14 +98,17 @@ function tags(list) {
 }
 
 function labels(value) {
-  input(record(value), 'feedLabels must be an object');
+  input(record(value), 'labels must be an object');
 
   const result = {};
 
   for (const key of Reflect.ownKeys(value)) {
-    input(key === 'audio' || key === 'video', `Unsupported feed label: ${String(key)}`);
-    string(value[key], 200, `feedLabels.${key}`);
-    input(value[key].trim() !== '' && value[key].isWellFormed(), `feedLabels.${key} needs text`);
+    input(
+      key === 'audio' || key === 'video' || key === 'spoiler',
+      `Unsupported label: ${String(key)}`
+    );
+    string(value[key], 200, `labels.${key}`);
+    input(value[key].trim() !== '' && value[key].isWellFormed(), `labels.${key} needs text`);
     result[key] = value[key];
   }
 
@@ -117,7 +120,7 @@ function cleanup(options) {
 
   for (const key of Reflect.ownKeys(options)) {
     input(
-      key === 'attributes' || key === 'tagNames' || key === 'feedLabels',
+      key === 'attributes' || key === 'tagNames' || key === 'labels',
       `Unsupported cleanup option: ${String(key)}`
     );
   }
@@ -132,8 +135,8 @@ function cleanup(options) {
     result.attributes = attributes(options.attributes);
   }
 
-  if (options.feedLabels !== undefined) {
-    result.feedLabels = labels(options.feedLabels);
+  if (options.labels !== undefined) {
+    result.labels = labels(options.labels);
   }
 
   return result;

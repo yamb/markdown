@@ -61,7 +61,7 @@ test('Markdown categories and nested inline extensions survive safe preparation'
 
   assert.match(result.text.html, /class="spoiler"/);
   assert.match(result.text.html, /tabindex="0"/);
-  assert.match(result.text.html, /title="Спойлер"/);
+  assert.match(result.text.html, /title="Spoiler"/);
   assert.match(result.text.plain, /hide nested/);
   assert.equal(result.title, '<b>Title & word</b>');
   assert.ok(!Object.hasOwn(result, 'preview'));
@@ -288,13 +288,15 @@ test('unsafe HTML and URLs are cleaned while media get safe feed projections', a
   assert.match(result.text.plain, /Safe link/);
 });
 
-test('feed labels replace the default media link text', async () => {
+test('labels replace the default spoiler title and media link text', async () => {
   await using md = markdown();
   const source = post(
-    '<video src="./video.mp4"></video><audio src="./audio.mp3"></audio><iframe src="https://www.youtube.com/embed/1" title="Movie"></iframe>'
+    '||Hidden||\n\n<video src="./video.mp4"></video><audio src="./audio.mp3"></audio><iframe src="https://www.youtube.com/embed/1" title="Movie"></iframe>'
   );
-  const feedLabels = { video: 'Watch video', audio: 'Listen to audio' };
-  const result = await prepare(source, [md, md.html(), md.clean({ feedLabels })], ctx);
+  const labels = { video: 'Watch video', audio: 'Listen to audio', spoiler: 'Hidden text' };
+  const result = await prepare(source, [md, md.html(), md.clean({ labels })], ctx);
+
+  assert.match(result.text.html, /<span class="spoiler" tabindex="0" title="Hidden text">/);
 
   assert.match(result.text.feedHtml, />Watch video<\/a>/);
   assert.match(result.text.feedHtml, />Listen to audio<\/a>/);
@@ -302,11 +304,12 @@ test('feed labels replace the default media link text', async () => {
 
   const partial = await prepare(
     source,
-    [md, md.html(), md.clean({ feedLabels: { audio: 'Listen' } })],
+    [md, md.html(), md.clean({ labels: { audio: 'Listen' } })],
     ctx
   );
   assert.match(partial.text.feedHtml, />Open video<\/a>/);
   assert.match(partial.text.feedHtml, />Listen<\/a>/);
+  assert.match(partial.text.html, /title="Spoiler"/);
 });
 
 test('picture candidates resolve like src and unsafe candidates are dropped', async () => {
@@ -438,8 +441,8 @@ test('cleanup options reject unknown keys and unsafe or reserved attributes', as
     { attributes: {} },
     { tagNames: undefined },
     { tagNames: [] },
-    { feedLabels: undefined },
-    { feedLabels: {} },
+    { labels: undefined },
+    { labels: {} },
     Object.assign(Object.create(null), { attributes: Object.create(null) })
   ]) {
     assert.equal(md.clean(options).name, 'clean-html');
@@ -482,12 +485,12 @@ test('cleanup options reject unknown keys and unsafe or reserved attributes', as
     { tagNames: ['svg'] },
     { tagNames: ['p'] },
     { tagNames: [1] },
-    { feedLabels: null },
-    { feedLabels: ['Watch'] },
-    { feedLabels: { image: 'View' } },
-    { feedLabels: { video: 1 } },
-    { feedLabels: { video: ' ' } },
-    { feedLabels: { audio: '\uD800' } }
+    { labels: null },
+    { labels: ['Watch'] },
+    { labels: { image: 'View' } },
+    { labels: { video: 1 } },
+    { labels: { spoiler: ' ' } },
+    { labels: { audio: '\uD800' } }
   ]) {
     assert.throws(() => md.clean(options), { code: 'YAMB_CONTENT_INPUT' }, JSON.stringify(options));
   }
