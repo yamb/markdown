@@ -9,8 +9,20 @@ import { failure, input, string } from './limits.js';
 
 const { version } = manifest;
 const tagName = /^[a-z][a-z0-9]*$/;
-const attributeName = /^(?:target|rel|(?:data|aria)-[a-z0-9]+(?:-[a-z0-9]+)*)$/;
+const attributeName =
+  /^(?:target|rel|align|cite|frameborder|itemprop|marginheight|marginwidth|scrolling|(?:data|aria)-[a-z0-9]+(?:-[a-z0-9]+)*)$/;
 const reserved = /^data-yamb(?:-|$)/;
+const urlAttributes = new Set(['cite']);
+const extraTags = new Set([
+  'abbr',
+  'address',
+  'article',
+  'aside',
+  'cite',
+  'footer',
+  'header',
+  'small'
+]);
 const escape = (value) =>
   value
     .replaceAll('&', '&amp;')
@@ -55,7 +67,10 @@ function attribute(entry, tag, seen) {
     return info.property;
   }
 
-  input(!info.number, `attributes.${tag}.${name} cannot restrict values`);
+  input(
+    !info.number && !urlAttributes.has(name),
+    `attributes.${tag}.${name} cannot restrict values`
+  );
   input(values.length > 0, `attributes.${tag}.${name} needs allowed values`);
 
   for (const value of values) {
@@ -68,25 +83,74 @@ function attribute(entry, tag, seen) {
   return [info.property, ...values];
 }
 
-function attributes(options) {
-  input(record(options), 'Expected cleanup options');
+function tags(list) {
+  input(Array.isArray(list), 'tagNames must be an array');
 
-  for (const key of Reflect.ownKeys(options)) {
-    input(key === 'attributes', `Unsupported cleanup option: ${String(key)}`);
+  const result = [];
+
+  for (const tag of list) {
+    input(extraTags.has(tag), `Unsupported cleanup tag name: ${String(tag)}`);
+    input(!result.includes(tag), `tagNames repeats ${tag}`);
+    result.push(tag);
   }
 
-  if (options.attributes === undefined) {
-    return;
-  }
+  return result;
+}
 
-  input(record(options.attributes), 'attributes must be an object');
+function labels(value) {
+  input(record(value), 'labels must be an object');
 
   const result = {};
 
-  for (const tag of Reflect.ownKeys(options.attributes)) {
+  for (const key of Reflect.ownKeys(value)) {
+    input(
+      key === 'audio' || key === 'video' || key === 'spoiler',
+      `Unsupported label: ${String(key)}`
+    );
+    string(value[key], 200, `labels.${key}`);
+    input(value[key].trim() !== '' && value[key].isWellFormed(), `labels.${key} needs text`);
+    result[key] = value[key];
+  }
+
+  return result;
+}
+
+function cleanup(options) {
+  input(record(options), 'Expected cleanup options');
+
+  for (const key of Reflect.ownKeys(options)) {
+    input(
+      key === 'attributes' || key === 'tagNames' || key === 'labels',
+      `Unsupported cleanup option: ${String(key)}`
+    );
+  }
+
+  const result = {};
+
+  if (options.tagNames !== undefined) {
+    result.tagNames = tags(options.tagNames);
+  }
+
+  if (options.attributes !== undefined) {
+    result.attributes = attributes(options.attributes);
+  }
+
+  if (options.labels !== undefined) {
+    result.labels = labels(options.labels);
+  }
+
+  return result;
+}
+
+function attributes(value) {
+  input(record(value), 'attributes must be an object');
+
+  const result = {};
+
+  for (const tag of Reflect.ownKeys(value)) {
     input(typeof tag === 'string' && tagName.test(tag), `Unsupported cleanup tag: ${String(tag)}`);
 
-    const list = options.attributes[tag];
+    const list = value[tag];
     input(Array.isArray(list), `attributes.${tag} must be an array`);
 
     const seen = new Set();
@@ -224,7 +288,7 @@ export function markdown() {
     },
 
     clean(options = {}) {
-      const allowed = attributes(options);
+      const policy = cleanup(options);
 
       return {
         name: 'clean-html',
@@ -246,14 +310,15 @@ export function markdown() {
             throw failure('YAMB_CONTENT_INPUT', 'Invalid document URL context', cause);
           }
 
-          const payload = { title: value.title, ...fields(value, 'html'), documentURL: document };
+          const payload = {
+            title: value.title,
+            ...fields(value, 'html'),
+            documentURL: document,
+            ...policy
+          };
 
           if (image.caption !== undefined) {
             payload.caption = image.caption;
-          }
-
-          if (allowed !== undefined) {
-            payload.attributes = allowed;
           }
 
           const { caption, ...prepared } = await owner.run('clean', payload, ctx);

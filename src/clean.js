@@ -15,7 +15,8 @@ const hosts = new Set([
 const protocols = {
   href: ['http', 'https', 'mailto', 'tel'],
   src: ['http', 'https'],
-  poster: ['http', 'https']
+  poster: ['http', 'https'],
+  cite: ['http', 'https']
 };
 const urlProperties = Object.keys(protocols);
 const urlProtocols = {};
@@ -186,21 +187,19 @@ function rewriteFragment(resolved, document, anchors) {
   }
 }
 
-function policy(attributes) {
-  if (attributes === undefined) {
-    return schema;
-  }
-
+function policy({ tagNames = [], attributes = {} }) {
   const merged = { ...schema.attributes };
 
   for (const [tag, list] of Object.entries(attributes)) {
     merged[tag] = Object.hasOwn(merged, tag) ? [...merged[tag], ...list] : list;
   }
 
-  return { ...schema, attributes: merged };
+  return { ...schema, tagNames: [...schema.tagNames, ...tagNames], attributes: merged };
 }
 
-function tree(value, documentURL, field, marker, anchors, rules = schema) {
+const defaultLabels = { audio: 'Open audio', video: 'Open video', spoiler: 'Spoiler' };
+
+function tree(value, documentURL, field, marker, anchors, rules = schema, labels = defaultLabels) {
   string(value, 5000000, field);
 
   const parsed = fromHtml(value, { fragment: true });
@@ -270,7 +269,8 @@ function tree(value, documentURL, field, marker, anchors, rules = schema) {
       node.properties.href !== undefined ||
       node.properties.src !== undefined ||
       node.properties.srcSet !== undefined ||
-      node.properties.poster !== undefined
+      node.properties.poster !== undefined ||
+      node.properties.cite !== undefined
     ) {
       links.push(node);
     }
@@ -280,7 +280,9 @@ function tree(value, documentURL, field, marker, anchors, rules = schema) {
       node.properties.disabled = true;
     }
 
-    if (node.tagName === 'span' && !node.properties.className?.includes('spoiler')) {
+    if (node.tagName === 'span' && node.properties.className?.includes('spoiler')) {
+      node.properties.title = labels.spoiler;
+    } else if (node.tagName === 'span') {
       delete node.properties.tabIndex;
     }
   });
@@ -302,7 +304,7 @@ function tree(value, documentURL, field, marker, anchors, rules = schema) {
         continue;
       }
 
-      if (key === 'href' && resolved.hash) {
+      if ((key === 'href' || key === 'cite') && resolved.hash) {
         rewriteFragment(resolved, document, anchors);
       }
 
@@ -324,7 +326,7 @@ function tree(value, documentURL, field, marker, anchors, rules = schema) {
   return { tree: cleaned, index, hasMedia };
 }
 
-function feed(node) {
+function feed(node, labels) {
   if (node.type === 'element' && media.has(node.tagName)) {
     const href =
       node.properties.src ??
@@ -335,8 +337,7 @@ function feed(node) {
       return { type: 'text', value: '' };
     }
 
-    const label =
-      node.properties.title || (node.tagName === 'audio' ? 'Открыть аудио' : 'Открыть видео');
+    const label = node.properties.title || labels[node.tagName === 'audio' ? 'audio' : 'video'];
 
     return {
       type: 'element',
@@ -349,7 +350,7 @@ function feed(node) {
   let children;
 
   for (let index = 0; index < (node.children?.length ?? 0); index++) {
-    const child = feed(node.children[index]);
+    const child = feed(node.children[index], labels);
 
     if (child !== node.children[index]) {
       children ??= [...node.children];
@@ -362,7 +363,8 @@ function feed(node) {
 
 export function clean(payload) {
   const anchors = new Map();
-  const rules = policy(payload.attributes);
+  const rules = policy(payload);
+  const labels = { ...defaultLabels, ...payload.labels };
 
   function field(value, name) {
     input(value && typeof value === 'object', `${name} must contain HTML`);
@@ -378,7 +380,8 @@ export function clean(payload) {
       `${name}.html`,
       value.introduction?.marker,
       anchors,
-      rules
+      rules,
+      labels
     );
     const lead = value.introduction ? toHtml(cleaned.children.slice(0, index)) : undefined;
     const body = value.introduction ? toHtml(cleaned.children.slice(index + 1)) : undefined;
@@ -391,7 +394,9 @@ export function clean(payload) {
     return {
       tree: cleaned,
       html,
-      feedHtml: hasMedia ? string(toHtml(feed(cleaned)), 5000000, `${name}.feedHtml`) : html,
+      feedHtml: hasMedia
+        ? string(toHtml(feed(cleaned, labels)), 5000000, `${name}.feedHtml`)
+        : html,
       plain: toText(cleaned),
       introduction: value.introduction
         ? { lines: [...value.introduction.lines], index, html: lead }

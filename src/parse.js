@@ -21,7 +21,7 @@ export function parser() {
       attrs: [
         ['class', 'spoiler'],
         ['tabindex', '0'],
-        ['title', 'Спойлер']
+        ['title', 'Spoiler']
       ]
     })
     .use(tasks)
