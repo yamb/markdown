@@ -132,6 +132,7 @@ for (const [input, boundary] of [
   ['- - -', null],
   ['***', null],
   ['Intro\n---\nBody', null],
+  ['Intro\n\n---\n \nBody', null],
   ['No boundary', null]
 ]) {
   test(`introduction from source ${JSON.stringify(input)}`, async () => {
@@ -506,6 +507,23 @@ test('relative and protocol-relative iframe are rejected before URL resolution',
     { ...ctx, base: new URL('https://www.youtube.com') }
   );
   assert.equal(elements(result.text.tree, 'iframe').length, 0);
+});
+
+test('URL schemes are matched case-insensitively after resolution', async () => {
+  const result = await prepareText(
+    '<a href="HTTPS://example.test/x">a</a><a href="MailTo:me@example.test">m</a><a href="JavaScript:evil()">j</a><img src="HTTP://example.test/i.png"><iframe src="HTTPS://WWW.YOUTUBE.COM/embed/x"></iframe>'
+  );
+  const [secure, mail, script] = elements(result.text.tree, 'a');
+
+  assert.equal(secure.properties.href, 'https://example.test/x');
+  assert.equal(mail.properties.href, 'mailto:me@example.test');
+  assert.ok(!Object.hasOwn(script.properties, 'href'));
+  assert.equal(elements(result.text.tree, 'img')[0].properties.src, 'http://example.test/i.png');
+  assert.equal(
+    elements(result.text.tree, 'iframe')[0].properties.src,
+    'https://www.youtube.com/embed/x'
+  );
+  assert.doesNotMatch(result.text.html, /javascript:/i);
 });
 
 test('literal Unicode and percent ids resolve once, only within the same document and query', async () => {

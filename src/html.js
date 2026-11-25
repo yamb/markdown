@@ -2,15 +2,13 @@ import { randomUUID } from 'node:crypto';
 
 import MarkdownIt from 'markdown-it';
 
-import { failure, input, introduction, string } from './limits.js';
+import { exceeded, input, introduction, MAX_DEPTH, MAX_HTML, MAX_NODES, string } from './limits.js';
 
 export function html(md, value, field) {
   input(value && Array.isArray(value.tokens), `${field} must contain Markdown tokens`);
 
-  if (value.tokens.length > 250000) {
-    throw Object.assign(failure('YAMB_CONTENT_LIMIT', `${field} structure exceeds budget`), {
-      field
-    });
+  if (value.tokens.length > MAX_NODES) {
+    throw exceeded(field);
   }
 
   introduction(value.introduction);
@@ -26,10 +24,8 @@ export function html(md, value, field) {
       `${field} has invalid or cyclic tokens`
     );
 
-    if (++count > 250000 || depth >= 100 || token.level >= 100) {
-      throw Object.assign(failure('YAMB_CONTENT_LIMIT', `${field} structure exceeds budget`), {
-        field
-      });
+    if (++count > MAX_NODES || depth >= MAX_DEPTH || token.level >= MAX_DEPTH) {
+      throw exceeded(field);
     }
 
     input(
@@ -58,10 +54,8 @@ export function html(md, value, field) {
       `${field}.children must be an array`
     );
 
-    if ((token.children?.length ?? 0) > 250000 - count) {
-      throw Object.assign(failure('YAMB_CONTENT_LIMIT', `${field} structure exceeds budget`), {
-        field
-      });
+    if ((token.children?.length ?? 0) > MAX_NODES - count) {
+      throw exceeded(field);
     }
 
     path.add(token);
@@ -96,7 +90,7 @@ export function html(md, value, field) {
   );
 
   const result = md.renderer.render(tokens, md.options, {});
-  string(result, 5000000, `${field}.html`);
+  string(result, MAX_HTML, `${field}.html`);
 
   return {
     html: result,

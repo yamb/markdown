@@ -1,6 +1,6 @@
 {
   "name": "yamb-markdown",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Editable Markdown tokens and sanitized HTML and text projections for Yamb",
   "keywords": [
     "html",
