@@ -5,7 +5,7 @@ import { url } from '#core/url';
 
 import manifest from '../package.json' with { type: 'json' };
 import { execution } from './execution.js';
-import { failure, input, string } from './limits.js';
+import { failure, input, MAX_HTML, string } from './limits.js';
 
 const { version } = manifest;
 const tagName = /^[a-z][a-z0-9]*$/;
@@ -166,7 +166,7 @@ function attributes(value) {
 
 function postCover(value) {
   input(value && typeof value === 'object' && !Array.isArray(value), 'Expected a post record');
-  string(value.title, 5000000, 'title');
+  string(value.title, MAX_HTML, 'title');
   input(
     value.source &&
       typeof value.source === 'object' &&
@@ -183,11 +183,11 @@ function postCover(value) {
   const result = cover(metadata);
 
   if (alt !== undefined) {
-    result.alt = string(alt, 5000000, 'alt');
+    result.alt = string(alt, MAX_HTML, 'alt');
   }
 
   if (caption !== undefined) {
-    result.caption = string(caption, 5000000, 'caption');
+    result.caption = string(caption, MAX_HTML, 'caption');
   }
 
   return result;
@@ -215,7 +215,7 @@ function content(value, field, format) {
   }
 
   if (rendered) {
-    return { html: string(value.html, 5000000, `${field}.html`), introduction };
+    return { html: string(value.html, MAX_HTML, `${field}.html`), introduction };
   }
 
   input(Array.isArray(value.tokens), `${field} must contain Markdown tokens`);
@@ -243,7 +243,6 @@ export function markdown() {
     [Symbol.asyncDispose]: owner.close,
 
     async transform(source, ctx = {}) {
-      ctx.signal?.throwIfAborted();
       input(source && typeof source === 'object' && !Array.isArray(source), 'Expected PostData');
       string(source.title, 500, 'title');
       const payload = { text: string(source.text, 1048576, 'text') };
@@ -272,12 +271,11 @@ export function markdown() {
         version,
 
         async transform(value, ctx = {}) {
-          ctx.signal?.throwIfAborted();
           const image = postCover(value);
-          const title = string(escape(value.title), 5000000, 'title');
+          const title = string(escape(value.title), MAX_HTML, 'title');
 
           if (image.caption !== undefined) {
-            image.caption = string(escape(image.caption), 5000000, 'caption');
+            image.caption = string(escape(image.caption), MAX_HTML, 'caption');
           }
 
           const rendered = await owner.run('html', fields(value, 'tokens'), ctx);
@@ -295,7 +293,6 @@ export function markdown() {
         version,
 
         async transform(value, ctx = {}) {
-          ctx.signal?.throwIfAborted();
           const image = postCover(value);
           input(
             value.source.uri === undefined || typeof value.source.uri === 'string',

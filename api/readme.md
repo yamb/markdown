@@ -125,7 +125,7 @@ Limits are fixed; overflow rejects rather than truncates. String lengths count U
 | Wall deadline per stage request | 15000 ms from enqueue, including queue time |
 | Worker V8 budgets | Old generation 512 MiB, young generation 32 MiB, stack 8 MiB |
 
-Reuse one owner across posts. After rendering finishes, call `await md.close()` or use `await using`. Closure is idempotent, rejects outstanding work and waits for shutdown. All stages reject after close. V8 budgets apply to JS heap. Application transforms must cooperate with cancellation.
+Reuse one owner across posts. The worker starts on demand, and an idle worker does not keep the process alive. After rendering finishes, call `await md.close()` or use `await using`. Closure is idempotent, rejects outstanding work and waits for shutdown. All stages reject after close. V8 budgets apply to JS heap. Application transforms must cooperate with cancellation.
 
 | Error code | Cause |
 | --- | --- |
@@ -133,6 +133,6 @@ Reuse one owner across posts. After rendering finishes, call `await md.close()` 
 | `YAMB_CONTENT_LIMIT` | String/structure budget exceeded; includes `field` |
 | `YAMB_CONTENT_BUSY` | Queue full |
 | `YAMB_CONTENT_TIMEOUT` | Wall deadline exceeded |
-| `YAMB_CONTENT_WORKER` | Worker start, crash, exit, message or shutdown failure |
+| `YAMB_CONTENT_WORKER` | Worker start, crash, exit (including an exhausted V8 budget) or message failure |
 
-Errors retain causes where present. The core executor wraps stage failures with stage/cause; native `AbortSignal.reason` values propagate unchanged, including non-Error reasons. No partial PreparedPost is returned on failure.
+Errors retain causes where present. The core executor wraps stage failures in `TransformError` with `details.stage` and the original `cause`; native `AbortSignal.reason` values propagate unchanged, including non-Error reasons. No partial PreparedPost is returned on failure.

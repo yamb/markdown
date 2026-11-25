@@ -1,5 +1,13 @@
+export const MAX_HTML = 5000000;
+export const MAX_NODES = 250000;
+export const MAX_DEPTH = 100;
+
 export function failure(code, message, cause) {
   return Object.assign(new Error(message, cause === undefined ? undefined : { cause }), { code });
+}
+
+export function exceeded(field, what = 'structure') {
+  return Object.assign(failure('YAMB_CONTENT_LIMIT', `${field} ${what} exceeds budget`), { field });
 }
 
 export function input(condition, message) {
@@ -20,24 +28,22 @@ export function string(value, limit, field) {
   return value;
 }
 
-export function structure(root, field, tokens = false) {
-  let count = tokens ? -1 : 0;
+export function structure(tokens, field) {
+  let count = 0;
 
-  function visit(value, depth) {
-    if (++count > 250000 || depth >= 100 || (tokens && value.level >= 100)) {
-      throw Object.assign(failure('YAMB_CONTENT_LIMIT', `${field} structure exceeds budget`), {
-        field
-      });
+  function visit(token, depth) {
+    if (++count > MAX_NODES || depth >= MAX_DEPTH || token.level >= MAX_DEPTH) {
+      throw exceeded(field);
     }
 
-    if (value.children != null) {
-      for (const child of value.children) {
-        visit(child, depth + 1);
-      }
+    for (const child of token.children ?? []) {
+      visit(child, depth + 1);
     }
   }
 
-  visit(root, tokens ? -1 : 0);
+  for (const token of tokens) {
+    visit(token, 0);
+  }
 }
 
 export function introduction(value, needsMarker = false) {

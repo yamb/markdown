@@ -3,7 +3,7 @@ import { defaultSchema, sanitize } from 'hast-util-sanitize';
 import { toHtml } from 'hast-util-to-html';
 import { toText } from 'hast-util-to-text';
 
-import { failure, input, introduction, string } from './limits.js';
+import { exceeded, input, introduction, MAX_DEPTH, MAX_HTML, MAX_NODES, string } from './limits.js';
 
 const media = new Set(['iframe', 'video', 'audio']);
 const hosts = new Set([
@@ -18,12 +18,10 @@ const protocols = {
   poster: ['http', 'https'],
   cite: ['http', 'https']
 };
-const urlProperties = Object.keys(protocols);
-const urlProtocols = {};
-
-for (const key of urlProperties) {
-  urlProtocols[key] = protocols[key].map((protocol) => `${protocol}:`);
-}
+const urlProtocols = Object.fromEntries(
+  Object.entries(protocols).map(([key, list]) => [key, list.map((protocol) => `${protocol}:`)])
+);
+const urlProperties = Object.keys(urlProtocols);
 
 const blank = new Set(['\t', '\n', '\f', '\r', ' ']);
 const descriptor = /^[\t\n\f\r ]*(?:(\d+w|(?:\d+(?:\.\d+)?|\.\d+)x)[\t\n\f\r ]*)?$/;
@@ -60,7 +58,8 @@ const schema = {
     iframe: ['src', 'width', 'height', 'loading', 'allowFullScreen'],
     input: [['type', 'checkbox'], ['disabled', true], 'checked']
   },
-  protocols
+  // The sanitizer compares schemes case-sensitively; tree() checks protocols after resolution.
+  protocols: {}
 };
 
 function visit(node, fn, depth = 0) {
@@ -73,32 +72,21 @@ function visit(node, fn, depth = 0) {
 }
 
 function iframe(src) {
-  if (typeof src !== 'string') {
-    return false;
-  }
+  const parsed = typeof src === 'string' ? URL.parse(src) : null;
 
-  try {
-    const parsed = new URL(src);
-
-    return (
-      urlProtocols.src.includes(parsed.protocol) &&
-      hosts.has(parsed.hostname) &&
-      !parsed.username &&
-      !parsed.password
-    );
-  } catch {
-    return false;
-  }
+  return (
+    parsed !== null &&
+    urlProtocols.src.includes(parsed.protocol) &&
+    hosts.has(parsed.hostname) &&
+    !parsed.username &&
+    !parsed.password
+  );
 }
 
 function resolve(value, documentURL, allowed) {
-  try {
-    const resolved = new URL(String(value), documentURL);
+  const resolved = URL.parse(String(value), documentURL);
 
-    return allowed.includes(resolved.protocol) ? resolved : undefined;
-  } catch {
-    return undefined;
-  }
+  return resolved && allowed.includes(resolved.protocol) ? resolved : undefined;
 }
 
 function srcset(value, documentURL, field, budget) {
@@ -155,9 +143,7 @@ function srcset(value, documentURL, field, budget) {
     length += candidate.length + 2;
 
     if (length > budget) {
-      throw Object.assign(failure('YAMB_CONTENT_LIMIT', `${field} srcset exceeds budget`), {
-        field
-      });
+      throw exceeded(field, 'srcset');
     }
 
     list.push(candidate);
@@ -200,17 +186,15 @@ function policy({ tagNames = [], attributes = {} }) {
 const defaultLabels = { audio: 'Open audio', video: 'Open video', spoiler: 'Spoiler' };
 
 function tree(value, documentURL, field, marker, anchors, rules = schema, labels = defaultLabels) {
-  string(value, 5000000, field);
+  string(value, MAX_HTML, field);
 
   const parsed = fromHtml(value, { fragment: true });
   let count = 0;
   let matches = 0;
 
   visit(parsed, (node, depth) => {
-    if (++count > 250000 || depth >= 100) {
-      throw Object.assign(failure('YAMB_CONTENT_LIMIT', `${field} structure exceeds budget`), {
-        field
-      });
+    if (++count > MAX_NODES || depth >= MAX_DEPTH) {
+      throw exceeded(field);
     }
 
     if (node.tagName === 'iframe' && !iframe(node.properties.src)) {
@@ -266,11 +250,8 @@ function tree(value, documentURL, field, marker, anchors, rules = schema, labels
     }
 
     if (
-      node.properties.href !== undefined ||
-      node.properties.src !== undefined ||
       node.properties.srcSet !== undefined ||
-      node.properties.poster !== undefined ||
-      node.properties.cite !== undefined
+      urlProperties.some((key) => node.properties[key] !== undefined)
     ) {
       links.push(node);
     }
@@ -289,7 +270,7 @@ function tree(value, documentURL, field, marker, anchors, rules = schema, labels
 
   const document = new URL(documentURL);
   document.hash = '';
-  let budget = 5000000;
+  let budget = MAX_HTML;
 
   for (const node of links) {
     for (const key of urlProperties) {
@@ -387,7 +368,7 @@ export function clean(payload) {
     const body = value.introduction ? toHtml(cleaned.children.slice(index + 1)) : undefined;
     const html = string(
       value.introduction ? `${lead}${toHtml(cleaned.children[index])}${body}` : toHtml(cleaned),
-      5000000,
+      MAX_HTML,
       `${name}.html`
     );
 
@@ -395,7 +376,7 @@ export function clean(payload) {
       tree: cleaned,
       html,
       feedHtml: hasMedia
-        ? string(toHtml(feed(cleaned, labels)), 5000000, `${name}.feedHtml`)
+        ? string(toHtml(feed(cleaned, labels)), MAX_HTML, `${name}.feedHtml`)
         : html,
       plain: toText(cleaned),
       introduction: value.introduction

@@ -7,6 +7,8 @@ import tasks from 'markdown-it-task-lists';
 import { inline } from './inline.js';
 import { structure } from './limits.js';
 
+const blank = (line) => /^[\t ]*$/.test(line);
+
 export function parser() {
   const md = new MarkdownIt({ html: true, linkify: false, typographer: false, maxNesting: 101 })
     .use(ins)
@@ -42,8 +44,8 @@ export function parser() {
 
       return (
         lines[line] === '---' &&
-        (line === 0 || lines[line - 1].trim() === '') &&
-        (line === lines.length - 1 || lines[line + 1].trim() === '')
+        (line === 0 || blank(lines[line - 1])) &&
+        (line === lines.length - 1 || blank(lines[line + 1]))
       );
     });
 
@@ -57,7 +59,7 @@ export function parser() {
 
 export function parse(md, source, field) {
   const tokens = md.parse(source, {});
-  structure({ children: tokens }, field, true);
+  structure(tokens, field);
 
   const token = tokens.find((node) => node.meta?.yambIntroduction === true);
 

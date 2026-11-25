@@ -1,4 +1,4 @@
-import { parentPort } from 'node:worker_threads';
+import { parentPort, threadId } from 'node:worker_threads';
 
 parentPort.on('message', ({ op, payload }) => {
   if (op === 'crash') {
@@ -7,6 +7,11 @@ parentPort.on('message', ({ op, payload }) => {
 
   if (op === 'exit') {
     process.exit(1);
+  }
+
+  if (op === 'thread') {
+    parentPort.postMessage({ ok: true, value: threadId });
+    return;
   }
 
   if (op === 'wait') {
