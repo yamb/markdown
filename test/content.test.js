@@ -246,7 +246,7 @@ test('cleanup rejects PreparedPost input', async () => {
       prepare(source, [md, md.html(), md.clean(), md.clean()], ctx),
       (error) =>
         error.code === 'YAMB_TRANSFORM_FAILED' &&
-        error.stage === 'clean-html' &&
+        error.details.stage === 'clean-html' &&
         error.cause.code === 'YAMB_CONTENT_INPUT'
     );
 

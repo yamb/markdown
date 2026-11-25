@@ -135,4 +135,4 @@ Reuse one owner across posts. The worker starts on demand, and an idle worker do
 | `YAMB_CONTENT_TIMEOUT` | Wall deadline exceeded |
 | `YAMB_CONTENT_WORKER` | Worker start, crash, exit (including an exhausted V8 budget) or message failure |
 
-Errors retain causes where present. The core executor wraps stage failures with stage/cause; native `AbortSignal.reason` values propagate unchanged, including non-Error reasons. No partial PreparedPost is returned on failure.
+Errors retain causes where present. The core executor wraps stage failures in `TransformError` with `details.stage` and the original `cause`; native `AbortSignal.reason` values propagate unchanged, including non-Error reasons. No partial PreparedPost is returned on failure.
